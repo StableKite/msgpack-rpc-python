@@ -4,12 +4,22 @@
 
 # MessagePack RPC for Python
 
-MessagePack RPC implementation based on Tornado.
+MessagePack RPC implementation based on Tornado 453 builtin for use with if Jupyter is installed .
+This may not be the best solution, but for me it solves the issue. Can now use jupyterlab and notebook together with msgpack-rpc-python. The example works. It is hard to interrupt the server side tho...
+
+forked from https://github.com/johnnewto/msgpack-rpc-python
+
+To use it, just clone it and checkout.
+Remove any existing installation of msgpack-rpc-python:
+pip uninstall msgpack-rpc-python
+
+Install msgpack-rpc-python with integrated tornado from the local directory in which you cloned my fork, for example when you are currently in this directory: pip install .
 
 ## Installation
 
 ```sh
-% pip install msgpack-rpc-python
+pip uninstall msgpack-rpc-python
+pip install git+https://github.com/StableKite/msgpack-rpc-python.git
 ```
 
 or
@@ -56,7 +66,7 @@ In test directory:
 % PYTHONPATH=../ python test/test_msgpackrpc.py
 ```
 
-Run with timeout test(Timeout test takes about 5 seconds)
+Run with timeout test (Timeout test takes about 5 seconds)
 
 ```sh
 % PYTHONPATH=../ python test/test_msgpackrpc.py --timeout-test

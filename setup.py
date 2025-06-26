@@ -5,14 +5,12 @@
 # This allows building sdist without installing any 3rd party packages.
 exec(open('msgpackrpc/_version.py').read())
 
-import platform
-
-try:
-    from setuptools import setup
-except ImportError:
-    from distutils.core import setup
-
+import os
+import sys
+from platform import python_implementation
+from setuptools import setup
 from distutils.core import Extension
+from warnings import warn
 
 # The following code is copied from
 # https://github.com/mongodb/mongo-python-driver/blob/master/setup.py
@@ -55,7 +53,7 @@ http://api.mongodb.org/python/current/installation.html#osx
         except Exception:
             e = sys.exc_info()[1]
             sys.stdout.write('%s\n' % str(e))
-            warnings.warn(self.warning_message % ("Extension modules",
+            warn(self.warning_message % ("Extension modules",
                                                   "There was an issue with "
                                                   "your platform configuration"
                                                   " - see above."))
@@ -67,7 +65,7 @@ http://api.mongodb.org/python/current/installation.html#osx
         except Exception:
             e = sys.exc_info()[1]
             sys.stdout.write('%s\n' % str(e))
-            warnings.warn(self.warning_message % ("The %s extension "
+            warn(self.warning_message % ("The %s extension "
                                                   "module" % (name,),
                                                   "The output above "
                                                   "this warning shows how "
@@ -75,7 +73,7 @@ http://api.mongodb.org/python/current/installation.html#osx
                                                   "failed."))
 
 kwargs = {}
-if (platform.python_implementation() == 'CPython' and
+if (python_implementation() == 'CPython' and
         os.environ.get('MSGPACKRPC_TORNADO_EXTENSION') != '0'):
     # This extension builds and works on pypy as well, although pypy's jit
     # produces equivalent performance.
@@ -90,21 +88,21 @@ if (platform.python_implementation() == 'CPython' and
         kwargs['cmdclass'] = {'build_ext': custom_build_ext}
 
 tornado_install_requires = []
-if setuptools is not None:
-    # If setuptools is not available, you're on your own for dependencies.
-    if sys.version_info < (2, 7):
-        # Only needed indirectly, for singledispatch.
-        tornado_install_requires.append('ordereddict')
-    if sys.version_info < (2, 7, 9):
-        tornado_install_requires.append('backports.ssl_match_hostname')
-    if sys.version_info < (3, 4):
-        tornado_install_requires.append('singledispatch')
-        # Certifi is also optional on 2.7.9+, although making our dependencies
-        # conditional on micro version numbers seems like a bad idea
-        # until we have more declarative metadata.
-        tornado_install_requires.append('certifi')
-    if sys.version_info < (3, 5):
-        tornado_install_requires.append('backports_abc>=0.4')
+
+# If setuptools is not available, you're on your own for dependencies.
+if sys.version_info < (2, 7):
+    # Only needed indirectly, for singledispatch.
+    tornado_install_requires.append('ordereddict')
+if sys.version_info < (2, 7, 9):
+    tornado_install_requires.append('backports.ssl_match_hostname')
+if sys.version_info < (3, 4):
+    tornado_install_requires.append('singledispatch')
+    # Certifi is also optional on 2.7.9+, although making our dependencies
+    # conditional on micro version numbers seems like a bad idea
+    # until we have more declarative metadata.
+    tornado_install_requires.append('certifi')
+if sys.version_info < (3, 5):
+    tornado_install_requires.append('backports_abc>=0.4')
 
 setup(name='msgpack-rpc-python',
       version=__version__,
