@@ -9,8 +9,30 @@ from msgpackrpc.error import RPCError, TransportError
 class BaseSocket(object):
     def __init__(self, stream, encodings):
         self._stream = stream
-        self._packer = msgpack.Packer(encoding=encodings[0], default=lambda x: x.to_msgpack())
-        self._unpacker = msgpack.Unpacker(encoding=encodings[1])
+        pack_encoding, unpack_encoding = encodings
+
+        # msgpack-python/msgpack < 1.0 accepted ``encoding=`` on Packer and
+        # Unpacker. Modern msgpack removed that argument and always encodes
+        # Python ``str`` values as UTF-8. MessagePack itself specifies UTF-8
+        # for string values, so preserve the public API for the historically
+        # supported values while using the modern codec interface.
+        if pack_encoding not in (None, 'utf-8', 'UTF-8'):
+            raise ValueError(
+                'pack_encoding must be UTF-8 or None with modern msgpack'
+            )
+        if unpack_encoding not in (None, 'utf-8', 'UTF-8'):
+            raise ValueError(
+                'unpack_encoding must be UTF-8 or None with modern msgpack'
+            )
+
+        self._packer = msgpack.Packer(
+            use_bin_type=False,
+            default=lambda x: x.to_msgpack(),
+        )
+        self._unpacker = msgpack.Unpacker(
+            raw=(unpack_encoding is None),
+            strict_map_key=False,
+        )
 
     def close(self):
         self._stream.close()

@@ -229,7 +229,7 @@ class OptionsTest(unittest.TestCase):
         options.define('foo')
         with self.assertRaises(Error) as cm:
             options.define('foo')
-        self.assertRegexpMatches(str(cm.exception),
+        self.assertRegex(str(cm.exception),
                                  'Option.*foo.*already defined')
 
     def test_error_redefine_underscore(self):
@@ -247,7 +247,7 @@ class OptionsTest(unittest.TestCase):
                 options.define(a)
                 with self.assertRaises(Error) as cm:
                     options.define(b)
-                self.assertRegexpMatches(str(cm.exception),
+                self.assertRegex(str(cm.exception),
                                          'Option.*foo.bar.*already defined')
 
     def test_dash_underscore_cli(self):

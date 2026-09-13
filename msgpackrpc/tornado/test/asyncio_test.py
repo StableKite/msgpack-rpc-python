@@ -46,7 +46,7 @@ class AsyncIOLoopTest(AsyncTestCase):
         if hasattr(asyncio, 'ensure_future'):
             ensure_future = asyncio.ensure_future
         else:
-            ensure_future = asyncio.async
+            ensure_future = getattr(asyncio, "async")
 
         x = yield ensure_future(
             asyncio.get_event_loop().run_in_executor(None, lambda: 42))

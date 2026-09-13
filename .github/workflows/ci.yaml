@@ -1,0 +1,656 @@
+name: Build and publish to devpi
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEVPI_SERVER: https://stablekite.com:4438/
+  DEVPI_TARGET_INDEX: https://stablekite.com:4438/StableKite/index/
+
+jobs:
+  build-wheels:
+    name: Wheel / ${{ matrix.target }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - Windows x86_64
+          - manylinux x86_64
+          - manylinux aarch64
+          - musllinux x86_64
+          - musllinux aarch64
+
+        include:
+          - target: Windows x86_64
+            id: windows-x64
+            runner: windows-latest
+            cibw_build: cp314t-win_amd64
+
+          - target: manylinux x86_64
+            id: manylinux-x64
+            runner: ubuntu-24.04
+            cibw_build: cp314t-manylinux_x86_64
+
+          - target: manylinux aarch64
+            id: manylinux-arm64
+            runner: ubuntu-24.04-arm
+            cibw_build: cp314t-manylinux_aarch64
+
+          - target: musllinux x86_64
+            id: musllinux-x64
+            runner: ubuntu-24.04
+            cibw_build: cp314t-musllinux_x86_64
+
+          - target: musllinux aarch64
+            id: musllinux-arm64
+            runner: ubuntu-24.04-arm
+            cibw_build: cp314t-musllinux_aarch64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build and test wheel
+        uses: pypa/cibuildwheel@v4.2.1
+        env:
+          CIBW_BUILD: ${{ matrix.cibw_build }}
+          CIBW_BUILD_VERBOSITY: "1"
+
+          # setup.py normally treats the Tornado speedups extension as
+          # optional. For published native wheels we require it to compile;
+          # otherwise a failed C build could silently produce a pure wheel.
+          CIBW_ENVIRONMENT: MSGPACKRPC_TORNADO_EXTENSION=1
+
+          # This extension links only against Python/platform runtime
+          # libraries. There are no third-party DLLs to vendor on Windows.
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: ""
+
+          # Copy the smoke test into cibuildwheel's isolated test directory.
+          # Running a script from {project} would put the source checkout first
+          # on sys.path and shadow the installed wheel.
+          CIBW_TEST_SOURCES: ci_wheel_smoke.py
+          CIBW_TEST_COMMAND: python ci_wheel_smoke.py
+
+        with:
+          output-dir: wheelhouse
+
+      - name: Verify wheel artifact
+        shell: bash
+        run: |
+          python - <<'PY'
+          from email.parser import BytesParser
+          from email.policy import default
+          from pathlib import Path
+          import zipfile
+
+          wheels = list(Path("wheelhouse").glob("*.whl"))
+
+          if len(wheels) != 1:
+              raise SystemExit(
+                  f"Expected exactly one wheel, got: {wheels}"
+              )
+
+          wheel = wheels[0]
+
+          if "-cp314-cp314t-" not in wheel.name:
+              raise SystemExit(
+                  f"Wheel is not cp314t: {wheel.name}"
+              )
+
+          with zipfile.ZipFile(wheel) as archive:
+              bad = archive.testzip()
+              if bad is not None:
+                  raise SystemExit(
+                      f"Corrupt wheel member: {bad}"
+                  )
+
+              names = archive.namelist()
+
+              required_python_files = (
+                  "msgpackrpc/__init__.py",
+                  "msgpackrpc/_version.py",
+                  "msgpackrpc/address.py",
+                  "msgpackrpc/client.py",
+                  "msgpackrpc/server.py",
+                  "msgpackrpc/session.py",
+                  "msgpackrpc/transport/tcp.py",
+                  "msgpackrpc/tornado/util.py",
+              )
+
+              for required in required_python_files:
+                  if required not in names:
+                      raise SystemExit(
+                          f"Wheel is missing: {required}"
+                      )
+
+              native = [
+                  name
+                  for name in names
+                  if name.startswith(
+                      "msgpackrpc/tornado/speedups"
+                  )
+                  and (
+                      name.endswith(".so")
+                      or name.endswith(".pyd")
+                  )
+              ]
+
+              if len(native) != 1:
+                  raise SystemExit(
+                      "Expected exactly one native speedups extension, "
+                      f"got: {native}"
+                  )
+
+              metadata_name = next(
+                  name
+                  for name in names
+                  if name.endswith(".dist-info/METADATA")
+              )
+
+              metadata = BytesParser(policy=default).parsebytes(
+                  archive.read(metadata_name)
+              )
+
+          if metadata["Name"].lower() != "msgpack-rpc-python":
+              raise SystemExit(
+                  f"Unexpected package name: {metadata['Name']!r}"
+              )
+
+          if metadata["Version"] != "0.5.0":
+              raise SystemExit(
+                  f"Unexpected package version: {metadata['Version']!r}"
+              )
+
+          requirements = metadata.get_all("Requires-Dist", [])
+          normalized = {
+              requirement.replace(" ", "").lower()
+              for requirement in requirements
+          }
+
+          if not any(
+              requirement.startswith("msgpack>=1.0.0")
+              for requirement in normalized
+          ):
+              raise SystemExit(
+                  "Wheel metadata is missing msgpack>=1.0.0 dependency: "
+                  f"{requirements!r}"
+              )
+
+          print(f"Wheel OK: {wheel.name}")
+          PY
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheel-${{ matrix.id }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+
+  source:
+    name: Source distribution
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.14t
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14t"
+
+      - name: Install build frontend
+        run: python -m pip install --upgrade build
+
+      - name: Compile Python sources
+        run: python -m compileall -q msgpackrpc
+
+      - name: Build source distribution
+        run: python -m build --sdist --outdir dist
+
+      - name: Verify source distribution
+        shell: bash
+        run: |
+          python - <<'PY'
+          from email.parser import BytesParser
+          from email.policy import default
+          from pathlib import Path
+          import tarfile
+
+          sdists = list(Path("dist").glob("*.tar.gz"))
+
+          if len(sdists) != 1:
+              raise SystemExit(
+                  f"Expected exactly one sdist, got: {sdists}"
+              )
+
+          sdist = sdists[0]
+
+          with tarfile.open(sdist, "r:gz") as archive:
+              members = archive.getmembers()
+              names = [member.name for member in members]
+
+              required_suffixes = (
+                  "/setup.py",
+                  "/pyproject.toml",
+                  "/msgpackrpc/__init__.py",
+                  "/msgpackrpc/_version.py",
+                  "/msgpackrpc/transport/tcp.py",
+                  "/msgpackrpc/tornado/util.py",
+                  "/msgpackrpc/tornado/speedups.c",
+              )
+
+              for suffix in required_suffixes:
+                  if not any(
+                      name.endswith(suffix)
+                      for name in names
+                  ):
+                      raise SystemExit(
+                          f"Source distribution is missing: {suffix}"
+                      )
+
+              pkg_info_name = next(
+                  name
+                  for name in names
+                  if name.endswith("/PKG-INFO")
+              )
+
+              pkg_info = archive.extractfile(pkg_info_name)
+              if pkg_info is None:
+                  raise SystemExit(
+                      f"Could not read {pkg_info_name}"
+                  )
+
+              metadata = BytesParser(
+                  policy=default
+              ).parsebytes(pkg_info.read())
+
+          if metadata["Name"].lower() != "msgpack-rpc-python":
+              raise SystemExit(
+                  f"Unexpected package name: {metadata['Name']!r}"
+              )
+
+          if metadata["Version"] != "0.5.0":
+              raise SystemExit(
+                  f"Unexpected package version: {metadata['Version']!r}"
+              )
+
+          print(f"Source distribution OK: {sdist.name}")
+          PY
+
+      - name: Verify sdist can build native extension
+        env:
+          MSGPACKRPC_TORNADO_EXTENSION: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf sdist-check rebuilt-wheel
+          mkdir -p sdist-check rebuilt-wheel
+
+          mapfile -t sdists < <(
+            find dist -maxdepth 1 -type f -name '*.tar.gz' -print
+          )
+
+          if [ "${#sdists[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one sdist."
+            exit 1
+          fi
+
+          tar -xzf "${sdists[0]}" -C sdist-check
+
+          mapfile -t roots < <(
+            find sdist-check \
+              -mindepth 1 \
+              -maxdepth 1 \
+              -type d \
+              -print
+          )
+
+          if [ "${#roots[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one sdist root directory."
+            exit 1
+          fi
+
+          python -m build \
+            --wheel \
+            --outdir rebuilt-wheel \
+            "${roots[0]}"
+
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          wheels = list(
+              Path("rebuilt-wheel").glob("*.whl")
+          )
+
+          if len(wheels) != 1:
+              raise SystemExit(
+                  f"Expected one rebuilt wheel, got: {wheels}"
+              )
+
+          wheel = wheels[0]
+
+          if "-cp314-cp314t-" not in wheel.name:
+              raise SystemExit(
+                  f"Rebuilt wheel is not cp314t: {wheel.name}"
+              )
+
+          with zipfile.ZipFile(wheel) as archive:
+              native = [
+                  name
+                  for name in archive.namelist()
+                  if name.startswith(
+                      "msgpackrpc/tornado/speedups"
+                  )
+                  and name.endswith(".so")
+              ]
+
+          if len(native) != 1:
+              raise SystemExit(
+                  "Rebuilt wheel does not contain exactly one "
+                  f"Linux speedups extension: {native}"
+              )
+
+          print(
+              "Successfully rebuilt native wheel from sdist:",
+              wheel.name,
+          )
+          PY
+
+      - name: Upload source distribution
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+
+  publish:
+    name: Publish to devpi
+
+    needs:
+      - build-wheels
+      - source
+
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v8
+        with:
+          pattern: wheel-*
+          path: incoming/wheels
+
+      - name: Download source distribution
+        uses: actions/download-artifact@v8
+        with:
+          name: sdist
+          path: incoming/sdist
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Prepare and verify artifacts
+        shell: bash
+        run: |
+          python - <<'PY'
+          from email.parser import BytesParser
+          from email.policy import default
+          from pathlib import Path
+          import hashlib
+          import shutil
+          import tarfile
+          import zipfile
+
+          incoming = Path("incoming")
+          dist = Path("dist")
+          dist.mkdir(exist_ok=True)
+
+          artifacts = sorted(
+              path
+              for path in incoming.rglob("*")
+              if path.is_file()
+              and (
+                  path.suffix == ".whl"
+                  or path.name.endswith(".tar.gz")
+              )
+          )
+
+          wheels = [
+              path
+              for path in artifacts
+              if path.suffix == ".whl"
+          ]
+          sdists = [
+              path
+              for path in artifacts
+              if path.name.endswith(".tar.gz")
+          ]
+
+          if len(wheels) != 5:
+              raise SystemExit(
+                  "Expected exactly five wheels, got: "
+                  f"{[p.name for p in wheels]}"
+              )
+
+          if len(sdists) != 1:
+              raise SystemExit(
+                  "Expected exactly one sdist, got: "
+                  f"{[p.name for p in sdists]}"
+              )
+
+          def linux_match(name, family, arch):
+              return (
+                  "-cp314-cp314t-" in name
+                  and family in name
+                  and name.endswith(f"{arch}.whl")
+              )
+
+          expected = {
+              "Windows x86_64": [
+                  p
+                  for p in wheels
+                  if p.name.endswith(
+                      "-cp314-cp314t-win_amd64.whl"
+                  )
+              ],
+              "manylinux x86_64": [
+                  p
+                  for p in wheels
+                  if linux_match(
+                      p.name,
+                      "manylinux",
+                      "x86_64",
+                  )
+              ],
+              "manylinux aarch64": [
+                  p
+                  for p in wheels
+                  if linux_match(
+                      p.name,
+                      "manylinux",
+                      "aarch64",
+                  )
+              ],
+              "musllinux x86_64": [
+                  p
+                  for p in wheels
+                  if linux_match(
+                      p.name,
+                      "musllinux",
+                      "x86_64",
+                  )
+              ],
+              "musllinux aarch64": [
+                  p
+                  for p in wheels
+                  if linux_match(
+                      p.name,
+                      "musllinux",
+                      "aarch64",
+                  )
+              ],
+          }
+
+          bad_targets = {
+              target: [path.name for path in found]
+              for target, found in expected.items()
+              if len(found) != 1
+          }
+
+          if bad_targets:
+              raise SystemExit(
+                  "Unexpected wheel target set: "
+                  f"{bad_targets}; all wheels: "
+                  f"{[p.name for p in wheels]}"
+              )
+
+          for wheel in wheels:
+              with zipfile.ZipFile(wheel) as archive:
+                  bad = archive.testzip()
+                  if bad is not None:
+                      raise SystemExit(
+                          f"Invalid wheel {wheel}: "
+                          f"bad member {bad}"
+                      )
+
+                  names = archive.namelist()
+                  native = [
+                      name
+                      for name in names
+                      if name.startswith(
+                          "msgpackrpc/tornado/speedups"
+                      )
+                      and (
+                          name.endswith(".so")
+                          or name.endswith(".pyd")
+                      )
+                  ]
+
+                  if len(native) != 1:
+                      raise SystemExit(
+                          f"{wheel.name} does not contain exactly "
+                          f"one speedups extension: {native}"
+                      )
+
+                  metadata_name = next(
+                      name
+                      for name in names
+                      if name.endswith(".dist-info/METADATA")
+                  )
+
+                  metadata = BytesParser(
+                      policy=default
+                  ).parsebytes(
+                      archive.read(metadata_name)
+                  )
+
+              if metadata["Name"].lower() != "msgpack-rpc-python":
+                  raise SystemExit(
+                      f"Unexpected package name in {wheel.name}: "
+                      f"{metadata['Name']!r}"
+                  )
+
+              if metadata["Version"] != "0.5.0":
+                  raise SystemExit(
+                      f"Unexpected version in {wheel.name}: "
+                      f"{metadata['Version']!r}"
+                  )
+
+          with tarfile.open(
+              sdists[0],
+              "r:gz",
+          ) as archive:
+              archive.getmembers()
+
+          origins = {}
+
+          for source in artifacts:
+              target = dist / source.name
+
+              if not target.exists():
+                  shutil.copy2(source, target)
+                  origins[source.name] = source
+                  continue
+
+              old_hash = hashlib.sha256(
+                  target.read_bytes()
+              ).hexdigest()
+              new_hash = hashlib.sha256(
+                  source.read_bytes()
+              ).hexdigest()
+
+              if old_hash == new_hash:
+                  print(
+                      "Skipping identical duplicate:",
+                      source.name,
+                  )
+                  continue
+
+              first = origins.get(source.name, target)
+              raise SystemExit(
+                  "\nDifferent artifacts have the same filename:\n"
+                  f"  {source.name}\n"
+                  f"  first:  {first}\n"
+                  f"  second: {source}\n"
+              )
+
+          print("\nArtifacts to publish:")
+          for artifact in sorted(dist.iterdir()):
+              print(
+                  f"  {artifact.name} "
+                  f"({artifact.stat().st_size} bytes)"
+              )
+          PY
+
+      - name: Install devpi tools
+        run: >-
+          python -m pip install
+          devpi-client
+          devpi-tokens
+
+      - name: Publish
+        env:
+          DEVPI_TOKEN: ${{ secrets.DEVPI_TOKEN }}
+          DEVPI_CLIENTDIR: ${{ runner.temp }}/devpi-client
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DEVPI_TOKEN:-}" ]; then
+            echo "::error::DEVPI_TOKEN is not available to this repository."
+            exit 1
+          fi
+
+          TOKEN_FILE="$RUNNER_TEMP/devpi-token"
+          printf '%s' "$DEVPI_TOKEN" > "$TOKEN_FILE"
+          chmod 600 "$TOKEN_FILE"
+
+          cleanup() {
+            rm -f "$TOKEN_FILE"
+            rm -rf "$DEVPI_CLIENTDIR"
+          }
+          trap cleanup EXIT
+
+          devpi use "$DEVPI_SERVER"
+          devpi token-login -f "$TOKEN_FILE"
+          devpi use "$DEVPI_TARGET_INDEX"
+          devpi upload dist/*

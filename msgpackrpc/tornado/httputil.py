@@ -24,6 +24,7 @@ from __future__ import absolute_import, division, print_function
 
 import calendar
 import collections
+from collections.abc import MutableMapping
 import copy
 import datetime
 import email.utils
@@ -103,7 +104,7 @@ class _NormalizedHeaderCache(dict):
 _normalized_headers = _NormalizedHeaderCache(1000)
 
 
-class HTTPHeaders(collections.MutableMapping):
+class HTTPHeaders(MutableMapping):
     """A dictionary that maintains ``Http-Header-Case`` for all keys.
 
     Supports multiple values per key via a pair of new methods,

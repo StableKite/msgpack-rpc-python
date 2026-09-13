@@ -53,9 +53,75 @@ if hasattr(ssl, 'match_hostname') and hasattr(ssl, 'CertificateError'):  # pytho
 elif ssl is None:
     ssl_match_hostname = SSLCertificateError = None  # type: ignore
 else:
-    import backports.ssl_match_hostname
-    ssl_match_hostname = backports.ssl_match_hostname.match_hostname
-    SSLCertificateError = backports.ssl_match_hostname.CertificateError  # type: ignore
+    # ``ssl.match_hostname`` was deprecated and was removed from modern
+    # Python. Keep Tornado 4.5.3 self-contained instead of requiring the old
+    # ``backports.ssl_match_hostname`` package just to import msgpackrpc.
+    import ipaddress
+    import re
+
+    SSLCertificateError = ssl.CertificateError
+
+    def _dnsname_match(dn, hostname):
+        pats = []
+        for frag in dn.split('.'):
+            if frag == '*':
+                pats.append('[^.]+')
+            else:
+                pats.append(re.escape(frag))
+        pattern = r'\A' + r'\.'.join(pats) + r'\Z'
+        return re.match(pattern, hostname, re.IGNORECASE) is not None
+
+    def ssl_match_hostname(cert, hostname):
+        if not cert:
+            raise SSLCertificateError(
+                'empty or no certificate, match_hostname needs a '
+                'SSL socket or SSL context with either CERT_OPTIONAL '
+                'or CERT_REQUIRED'
+            )
+
+        try:
+            host_ip = ipaddress.ip_address(hostname)
+        except ValueError:
+            host_ip = None
+
+        dnsnames = []
+        san = cert.get('subjectAltName', ())
+        for key, value in san:
+            if key == 'DNS':
+                if host_ip is None and _dnsname_match(value, hostname):
+                    return
+                dnsnames.append(value)
+            elif key == 'IP Address' and host_ip is not None:
+                try:
+                    if ipaddress.ip_address(value) == host_ip:
+                        return
+                except ValueError:
+                    pass
+                dnsnames.append(value)
+
+        if not san and host_ip is None:
+            for sub in cert.get('subject', ()):
+                for key, value in sub:
+                    if key == 'commonName':
+                        if _dnsname_match(value, hostname):
+                            return
+                        dnsnames.append(value)
+
+        if len(dnsnames) > 1:
+            raise SSLCertificateError(
+                "hostname %r doesn't match either of %s" % (
+                    hostname, ', '.join(map(repr, dnsnames))
+                )
+            )
+        elif len(dnsnames) == 1:
+            raise SSLCertificateError(
+                "hostname %r doesn't match %r" % (hostname, dnsnames[0])
+            )
+        else:
+            raise SSLCertificateError(
+                'no appropriate commonName or subjectAltName fields '
+                'were found'
+            )
 
 if hasattr(ssl, 'SSLContext'):
     if hasattr(ssl, 'create_default_context'):

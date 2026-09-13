@@ -246,7 +246,7 @@ def re_unescape(s):
 
     May raise ``ValueError`` for regular expressions which could not
     have been produced by `re.escape` (for example, strings containing
-    ``\d`` cannot be unescaped).
+    ``\\d`` cannot be unescaped).
 
     .. versionadded:: 4.4
     """

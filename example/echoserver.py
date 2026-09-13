@@ -19,7 +19,7 @@ def serve_background(server, daemon=False):
 
     import threading
     t = threading.Thread(target=_start_server, args = (server,))
-    t.setDaemon(daemon)
+    t.daemon = daemon
     t.start()
     return t
 
@@ -29,19 +29,19 @@ def serve(daemon=False):
 
     To stop, use ``server.shutdown()``
     """
-    for port in xrange(9000, 10000):
+    for port in range(9000, 10000):
         try:
             addr = msgpackrpc.Address('localhost', port)
             server = msgpackrpc.Server(EchoHandler())
-            print server
+            print(server)
             server.listen(addr)
             thread = serve_background(server, daemon)
             return (addr, server, thread)
         except Exception as err:
-            print err
+            print(err)
             pass
 
 if __name__ == '__main__':
     port = serve(False)
-    print "Serving on localhost:%d\n" % port[1]
+    print("Serving on localhost:%d\n" % port[1])
 

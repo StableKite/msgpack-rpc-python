@@ -463,7 +463,7 @@ class TestIOStreamMixin(object):
         try:
             with mock.patch('tornado.iostream.BaseIOStream._try_inline_read',
                             side_effect=IOError('boom')):
-                with self.assertRaisesRegexp(IOError, 'boom'):
+                with self.assertRaisesRegex(IOError, 'boom'):
                     client.read_until_close(self.stop)
         finally:
             server.close()

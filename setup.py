@@ -8,15 +8,14 @@ exec(open('msgpackrpc/_version.py').read())
 import os
 import sys
 from platform import python_implementation
-from setuptools import setup
-from distutils.core import Extension
+from setuptools import Extension, setup
 from warnings import warn
 
 # The following code is copied from
 # https://github.com/mongodb/mongo-python-driver/blob/master/setup.py
 # to support installing without the extension on platforms where
 # no compiler is available.
-from distutils.command.build_ext import build_ext
+from setuptools.command.build_ext import build_ext
 
 
 class custom_build_ext(build_ext):
@@ -116,12 +115,11 @@ MessagePack RPC for Python.
 This implementation uses Tornado framework as a backend.
 """,
       packages=['msgpackrpc', 'msgpackrpc/transport', 'msgpackrpc/tornado', 'msgpackrpc/tornado/test', 'msgpackrpc/tornado/platform'],
-      install_requires=['msgpack-python'] + tornado_install_requires,
-      license="Apache Software License",
+      install_requires=['msgpack>=1.0.0'] + tornado_install_requires,
+      license="Apache-2.0",
+      python_requires='>=3.9',
       classifiers=[
-          'Programming Language :: Python :: 2',
           'Programming Language :: Python :: 3',
-          'License :: OSI Approved :: Apache Software License'
       ],
       **kwargs
       )

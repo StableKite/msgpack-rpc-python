@@ -30,7 +30,7 @@ or
 
 ### Module dependency
 
-* msgpack-python (>= 0.3)
+* msgpack (>= 1.0.0)
 * tornado (>= 3)
 
 ## Example

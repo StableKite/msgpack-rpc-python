@@ -1853,7 +1853,7 @@ class Application(ReversibleRouter):
     We support virtual hosts with the `add_handlers` method, which takes in
     a host regular expression as the first argument::
 
-        application.add_handlers(r"www\.myhost\.com", [
+        application.add_handlers(r"www\\.myhost\\.com", [
             (r"/article/([0-9]+)", ArticleHandler),
         ])
 

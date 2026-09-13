@@ -1,13 +1,10 @@
 language: python
 
 python:
-  - 2.6
-  - 2.7
-  - 3.2
+  - "3.13"
 
 install:
-  - pip install --use-mirrors tornado msgpack-python
-  - python setup.py install
+  - python -m pip install .
 
 script:
   - python test/test_msgpackrpc.py --timeout-test

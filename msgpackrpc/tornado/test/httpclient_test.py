@@ -336,7 +336,7 @@ Transfer-Encoding: chunked
         self.fetch('/chunk', header_callback=header_callback,
                    streaming_callback=streaming_callback)
         self.assertEqual(len(first_line), 1, first_line)
-        self.assertRegexpMatches(first_line[0], 'HTTP/[0-9]\\.[0-9] 200.*\r\n')
+        self.assertRegex(first_line[0], 'HTTP/[0-9]\\.[0-9] 200.*\r\n')
         self.assertEqual(chunks, [b'asdf', b'qwer'])
 
     def test_header_callback_stack_context(self):

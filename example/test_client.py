@@ -30,7 +30,7 @@ def test_client():
     assert f1 == 'foo'
     assert f3 == 'baz'
 
-    print "EchoHandler#echo via msgpackrpc"
+    print("EchoHandler#echo via msgpackrpc")
 
 
 if __name__ == '__main__':

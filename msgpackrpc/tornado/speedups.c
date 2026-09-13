@@ -10,7 +10,12 @@ static PyObject* websocket_mask(PyObject* self, PyObject* args) {
     PyObject* result;
     char* buf;
 
-    if (!PyArg_ParseTuple(args, "s#s#", &mask, &mask_len, &data, &data_len)) {
+    if (!PyArg_ParseTuple(args, "y#y#", &mask, &mask_len, &data, &data_len)) {
+        return NULL;
+    }
+
+    if (mask_len != 4) {
+        PyErr_SetString(PyExc_ValueError, "websocket mask must be exactly 4 bytes");
         return NULL;
     }
 
@@ -32,6 +37,29 @@ static PyMethodDef methods[] = {
 };
 
 #if PY_MAJOR_VERSION >= 3
+#if PY_VERSION_HEX >= 0x030D0000
+static struct PyModuleDef_Slot speedups_slots[] = {
+    {Py_mod_gil, Py_MOD_GIL_NOT_USED},
+    {0, NULL}
+};
+
+static struct PyModuleDef speedupsmodule = {
+   PyModuleDef_HEAD_INIT,
+   "speedups",
+   NULL,
+   0,
+   methods,
+   speedups_slots,
+   NULL,
+   NULL,
+   NULL
+};
+
+PyMODINIT_FUNC
+PyInit_speedups(void) {
+    return PyModuleDef_Init(&speedupsmodule);
+}
+#else
 static struct PyModuleDef speedupsmodule = {
    PyModuleDef_HEAD_INIT,
    "speedups",
@@ -44,6 +72,7 @@ PyMODINIT_FUNC
 PyInit_speedups(void) {
     return PyModule_Create(&speedupsmodule);
 }
+#endif
 #else  // Python 2.x
 PyMODINIT_FUNC
 initspeedups(void) {

@@ -296,7 +296,7 @@ class ReactorReaderWriterTest(ReactorTestCase):
         self.shouldWrite = True
 
         def checkReadInput(fd):
-            self.assertEquals(fd.read(1), b'x')
+            self.assertEqual(fd.read(1), b'x')
             self._reactor.stop()
 
         def writeOnce(fd):

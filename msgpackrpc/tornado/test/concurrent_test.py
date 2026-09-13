@@ -312,7 +312,7 @@ class ClientTestMixin(object):
 
     def test_callback_error(self):
         self.client.capitalize("HELLO", callback=self.stop)
-        self.assertRaisesRegexp(CapError, "already capitalized", self.wait)
+        self.assertRaisesRegex(CapError, "already capitalized", self.wait)
 
     def test_future(self):
         future = self.client.capitalize("hello")
@@ -324,7 +324,7 @@ class ClientTestMixin(object):
         future = self.client.capitalize("HELLO")
         self.io_loop.add_future(future, self.stop)
         self.wait()
-        self.assertRaisesRegexp(CapError, "already capitalized", future.result)
+        self.assertRaisesRegex(CapError, "already capitalized", future.result)
 
     def test_generator(self):
         @gen.engine
@@ -338,7 +338,7 @@ class ClientTestMixin(object):
     def test_generator_error(self):
         @gen.engine
         def f():
-            with self.assertRaisesRegexp(CapError, "already capitalized"):
+            with self.assertRaisesRegex(CapError, "already capitalized"):
                 yield self.client.capitalize("HELLO")
             self.stop()
         f()
